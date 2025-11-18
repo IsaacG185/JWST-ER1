@@ -1,0 +1,5 @@
+# name    FILTER_ID   FLUX_COLUMN   ERROR_COLUMN
+F115W     364         ff115w        ef115w
+F150W     365         ff150w        ef150w
+F277W     375         ff277w        ef277w
+F444W     377         ff444w        ef444w
