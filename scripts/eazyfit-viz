@@ -1,0 +1,174 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+from astropy.table import Table
+from eazy import photoz
+
+# ------------------------------------------------
+# USER INPUTS
+# ------------------------------------------------
+phot_file   = "einstein_phot_3comp_HSTJWST.fits"
+translate   = "einstein.translate"
+filters_res = "/opt/miniconda3/envs/new-env/lib/python3.12/site-packages/eazy/data/eazy-photoz/filters/FILTER.RES.latest"
+
+params = {
+    "CATALOG_FILE":     phot_file,
+    "MAIN_OUTPUT_FILE": "einstein_eazy",
+    "FILTERS_RES":      filters_res,
+    "PRIOR_ABZP":       23.9,
+    "Z_MIN":            0.0,
+    "Z_MAX":            7.0,
+    "Z_STEP":           0.01,
+    "SYS_ERR":          0.03,
+}
+
+# Flux columns you want to plot, in order
+bands = [
+    "ff435w", "ff606w", "ff814w", "ff160w",   # HST
+    "ff115w", "ff150w", "ff277w", "ff444w",   # JWST
+]
+
+# Approximate effective wavelengths in microns (must match `bands` order)
+lam_eff_um = np.array([
+    0.435,   # F435W
+    0.606,   # F606W
+    0.814,   # F814W
+    1.60,    # F160W
+    1.15,    # F115W
+    1.50,    # F150W
+    2.77,    # F277W
+    4.44,    # F444W
+])
+
+# ------------------------------------------------
+# helpers
+# ------------------------------------------------
+def flux_to_mag(f_uJy, e_uJy):
+    """Convert μJy flux + error to AB mag + mag error."""
+    m = 23.9 - 2.5 * np.log10(f_uJy)
+    dm = 1.0857 * (e_uJy / f_uJy)
+    return m, dm
+
+def parse_translate_band_indices(translate_file, bands):
+    """
+    Parse einstein.translate and return a dict:
+    band_name (flux column) -> index in EAZY's FNU/FMODEL arrays.
+
+    Your translate file is 2-column, e.g.
+      ff115w   F364
+      ef115w   E364
+    so we just grab lines whose *first* token starts with 'ff'.
+    EAZY uses them in this order when building the filter grid.
+    """
+    order_cols = []
+    with open(translate_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            tokens = line.split()
+            if len(tokens) < 2:
+                continue
+
+            flux_col = tokens[0]
+
+            # Only keep flux columns (ff...), skip id, ef...
+            if flux_col.startswith("ff"):
+                order_cols.append(flux_col)
+
+    band_to_index = {}
+    for j, flux_col in enumerate(order_cols):
+        if flux_col in bands:
+            band_to_index[flux_col] = j
+
+    missing = [b for b in bands if b not in band_to_index]
+    if missing:
+        raise RuntimeError(
+            f"The following bands were not found among 'ff*' lines in translate file: {missing}\n"
+            f"Translate saw flux columns: {order_cols}"
+        )
+
+    return band_to_index
+
+
+# ------------------------------------------------
+# 1. Load photometry table
+# ------------------------------------------------
+tab = Table.read(phot_file)
+ids    = [1, 2, 3]
+labels = {1: "Lens (id=1)", 2: "Blue ring (id=2)", 3: "Red knots (id=3)"}
+colors = {1: "C0", 2: "C1", 3: "C2"}
+
+# ------------------------------------------------
+# 2. Run EAZY and get model fluxes
+# ------------------------------------------------
+def main():
+    # Map each band -> index in fnu/fmodel arrays
+    band_to_index = parse_translate_band_indices(translate, bands)
+
+    pz = photoz.PhotoZ(
+        param_file=None,
+        translate_file=translate,
+        params=params,
+        n_proc=0,
+    )
+
+    # Re-fit catalog (3 objects, 8 filters → very fast)
+    pz.fit_catalog()
+    zout, _ = pz.standard_output(save_fits=False, get_err=False)
+
+    fmodel = pz.fmodel  # shape (NOBJ, NFILT)
+    cat_ids = np.array(pz.cat["id"])
+
+    fig, (ax_sed, ax_res) = plt.subplots(
+        2, 1, figsize=(8, 8),
+        gridspec_kw={"height_ratios": [3, 1]},
+        sharex=True
+    )
+
+    for obj_id in ids:
+        idx = np.where(cat_ids == obj_id)[0][0]
+        row = tab[tab["id"] == obj_id][0]
+
+        # Observed fluxes/errors from your photometry table
+        f_obs = np.array([row[c] for c in bands])
+        e_obs = np.array([row["e" + c[1:]] for c in bands])  # "ff435w" -> "ef435w"
+
+        m_obs, dm_obs = flux_to_mag(f_obs, e_obs)
+
+        # Model fluxes from EAZY in the SAME filters (using translate order)
+        f_mod = []
+        for c in bands:
+            j = band_to_index[c]   # index in fmodel
+            f_mod.append(fmodel[idx, j])
+        f_mod = np.array(f_mod)
+        m_mod, _ = flux_to_mag(f_mod, f_mod * 0 + 1.0)
+
+        # ---- top panel: SED + model ----
+        ax_sed.errorbar(
+            lam_eff_um, m_obs, yerr=dm_obs,
+            fmt="o", color=colors[obj_id], capsize=3,
+            label=labels[obj_id]
+        )
+        ax_sed.plot(lam_eff_um, m_mod, "--", color=colors[obj_id], alpha=0.7)
+
+        # ---- bottom panel: residuals (data − model) ----
+        ax_res.plot(
+            lam_eff_um, m_obs - m_mod, "o-",
+            color=colors[obj_id]
+        )
+
+    ax_sed.set_ylabel("AB magnitude")
+    ax_sed.invert_yaxis()
+    ax_sed.legend(loc="best")
+
+    ax_res.axhline(0, color="k", lw=0.7)
+    ax_res.set_xlabel("Wavelength [μm]")
+    ax_res.set_ylabel("Δm (data − model)")
+
+    plt.tight_layout()
+    plt.savefig("figures/seds_eazy_fit.png", dpi=150)
+    plt.show()
+
+if __name__ == "__main__":
+    main()

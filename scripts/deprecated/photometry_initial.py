@@ -4,13 +4,14 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.visualization import simple_norm
+from astropy.table import Table
 
 # -----------------------------
 # USER INPUTS
 # -----------------------------
 # Center of your Einstein ring (in degrees)
 center_ra  = 150.100480
-center_dec =   1.893025
+center_dec =   1.893035
 
 # Size of region (in degrees) around center; you've already tuned this
 region_width_deg = 0.001       # example (~36 arcsec); adjust as you like
@@ -19,8 +20,8 @@ half_width_deg   = region_width_deg / 2.0
 # Aperture radii (in arcseconds)
 # lens: circular aperture around the central galaxy
 # ring: annulus between r_lens_arcsec and r_ring_arcsec
-r_lens_arcsec = 0.27          # inner radius (lens)
-r_ring_arcsec = 0.6          # outer radius (ring annulus)
+r_lens_arcsec = 0.3          # inner radius (lens)
+r_ring_arcsec = 1.05          # outer radius (ring annulus)
 # tweak these by eyeballing the overplotted circles
 
 # Map filter name -> i2d FITS file path
@@ -179,37 +180,45 @@ for idx, filt in enumerate(filters):
     print(f"Lens  flux (μJy): {lens_flux:.3g} ± {lens_err:.3g}")
     print(f"Ring  flux (μJy): {ring_flux:.3g} ± {ring_err:.3g}")
 
-    # ---- Plotting ----
-    ax = fig.add_subplot(2, 2, idx + 1, projection=wcs_sub)
+#     # ---- Plotting ----
+#     ax = fig.add_subplot(2, 2, idx + 1, projection=wcs_sub)
 
-    norm = simple_norm(sub_data, "sqrt", percent=99.0, clip=True)
-    im = ax.imshow(sub_data, origin="lower", norm=norm, cmap="gray")
+#     norm = simple_norm(sub_data, "sqrt", percent=99.0, clip=True)
+#     im = ax.imshow(sub_data, origin="lower", norm=norm, cmap="gray")
 
-    ax.set_title(filt)
-    ax.set_xlabel("Dec")
-    ax.set_ylabel("RA")
+#     ax.set_title(filt)
+#     ax.set_xlabel("RA")
+#     ax.set_ylabel("Dec")
 
-    # Mark center
-    ax.plot(x0, y0, marker="+", color="red", markersize=8, mew=1.5,
-            transform=ax.get_transform("pixel"))
+#     # Mark center
+#     ax.plot(x0, y0, marker="+", color="red", markersize=8, mew=1.5,
+#             transform=ax.get_transform("pixel"))
 
-    ring_outer_mask = (r_pix <= r_ring_pix)   # simple disk, so contour gives 1 circle
+#     ring_outer_mask = (r_pix <= r_ring_pix)   # simple disk, so contour gives 1 circle
 
-    # Overplot lens and ring masks as contours (0.5 separates False/True)
-    # ax.contour(lens_mask,      levels=[0.5], colors="yellow",
-    #         linewidths=1.0, linestyles="solid",
-    #         transform=ax.get_transform("pixel"))
+#     # Overplot lens and ring masks as contours (0.5 separates False/True)
+#     ax.contour(lens_mask,      levels=[0.5], colors="yellow",
+#             linewidths=1.0, linestyles="solid",
+#             transform=ax.get_transform("pixel"))
 
-    # ax.contour(ring_outer_mask, levels=[0.5], colors="cyan",
-    #         linewidths=1.0, linestyles="solid",
-    #         transform=ax.get_transform("pixel"))
+#     ax.contour(ring_outer_mask, levels=[0.5], colors="cyan",
+#             linewidths=1.0, linestyles="solid",
+#             transform=ax.get_transform("pixel"))
 
-plt.tight_layout()
-plt.savefig("figures/lens_ring_masks.png", dpi=150)
-plt.show()
+# plt.tight_layout()
+# plt.show()
+
+
+tab = Table()
+tab["id"] = [1, 2]  # 1 = lens, 2 = ring
 
 print("\n=== Summary (μJy) ===")
 for filt in filters:
-    print(f"{filt}:")
-    print(f"  Lens: {lens_fluxes[filt]:.3g} ± {lens_errors[filt]:.3g}")
-    print(f"  Ring: {ring_fluxes[filt]:.3g} ± {ring_errors[filt]:.3g}")
+    fcol = f"f{filt.lower()}"   # e.g. "ff115w", "ff150w"
+    ecol = f"e{filt.lower()}"   # e.g. "ef115w", etc.
+
+    tab[fcol] = [lens_fluxes[filt], ring_fluxes[filt]]
+    tab[ecol] = [lens_errors[filt], ring_errors[filt]]
+
+print(tab)
+tab.write("einstein_phot.fits", overwrite=True)

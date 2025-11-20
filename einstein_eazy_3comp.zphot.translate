@@ -1,4 +1,4 @@
-#  F444W
+#  F160W
 id  ID
 ff115w  F364
 ef115w  E364
@@ -8,3 +8,11 @@ ff277w  F375
 ef277w  E375
 ff444w  F377
 ef444w  E377
+ff814w  F6
+ef814w  E6
+ff435w  F233
+ef435w  E233
+ff606w  F236
+ef606w  E236
+ff160w  F205
+ef160w  E205
