@@ -22,9 +22,9 @@ center_dec =   1.893035
 region_width_deg = 0.001
 half_width_deg   = region_width_deg / 2.0
 
-r_lens_arcsec       = 0.30
-r_ring_inner_arcsec = 0.45
-r_ring_outer_arcsec = 1.10
+r_lens_arcsec       = 0.27
+r_ring_inner_arcsec = 0.6
+r_ring_outer_arcsec = 1.0
 
 ref_filter = "F277W"
 
